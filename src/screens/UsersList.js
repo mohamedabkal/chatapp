@@ -1,46 +1,103 @@
-import {
-  FlatList,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { SectionList, StyleSheet, Text, View } from "react-native";
 import React, { useEffect, useState } from "react";
-import { Image } from "expo-image";
 import { firestore } from "../../firebase";
+import Chat from "../components/Chat";
+import { CURRENT_USER_ID } from "../../dummy_data";
 
-const UsersList = () => {
+async function fetchAllUsers() {
+  const usersCollection = await firestore.collection("users").get();
+  const usersData = usersCollection.docs.map((doc) => {
+    return {
+      type: "user", // type of item "user" or "chat" (for ui)
+      id: doc.id,
+      ...doc.data(),
+    };
+  });
+  return usersData;
+}
+
+const UsersList = (props) => {
+  const [chats, setChats] = useState([]);
   const [users, setUsers] = useState([]);
 
+  const data = [
+    {
+      title: "Chats",
+      data: chats,
+    },
+    {
+      title: "Users",
+      data: users,
+    },
+  ];
+
   useEffect(() => {
-    // Listener for users collection
+    // Listener for chats collection
     const subscriber = firestore
-      .collection("users")
+      .collection("chats")
       .onSnapshot((documentSnapshot) => {
-        console.log("Users Collection: ", documentSnapshot.docs);
-        const usersData = documentSnapshot.docs.map((doc) => doc.data());
-        setUsers(usersData);
-        console.log("User data: ", usersData);
+        const chatsData = documentSnapshot.docs.map((doc) => {
+          return {
+            type: "chat", // type of item "user" or "chat" (for ui)
+            id: doc.id,
+            ...doc.data(),
+          };
+        });
+        setChats(chatsData);
+        console.log("Chat data: ", chatsData);
       });
 
     // Stop listening for updates when no longer required
     return () => subscriber();
   }, []);
 
-  const renderChat = ({ item }) => {
+  useEffect(() => {
+    fetchAllUsers().then((usersData) => {
+      const removeUserFromList = usersData.filter(
+        (user) => user.id !== CURRENT_USER_ID
+      );
+      setUsers(removeUserFromList);
+    });
+  }, []);
+
+  const openChat = (item) => {
+    props.navigation.navigate("ChatRoom", {
+      name: item.name,
+      chat_id: item.id,
+    });
+  };
+
+  const renderUser = ({ item }) => {
+    if (item.type === "chat") {
+      // chatInfo returns other user data to use it for displaying name & chat img
+      const chatInfo = item.users.find((chat) => chat.id !== CURRENT_USER_ID);
+      const chatImg = chatInfo?.profileImage;
+      const chatName = chatInfo?.name;
+      return (
+        <Chat
+          onPress={() => openChat(item)}
+          profileImage={chatImg}
+          name={chatName}
+        />
+      );
+    }
     return (
-      <TouchableOpacity style={styles.user}>
-        <Image source={item.profileImage} style={styles.userImg} />
-        <Text>{item.name}</Text>
-      </TouchableOpacity>
+      <Chat
+        onPress={() => openChat(item)}
+        profileImage={item.profileImage}
+        name={item.name}
+      />
     );
   };
 
   return (
-    <FlatList
-      data={users}
-      renderItem={renderChat}
-      ItemSeparatorComponent={<View style={styles.line} />}
+    <SectionList
+      sections={data}
+      keyExtractor={(item) => item.id}
+      renderItem={renderUser}
+      renderSectionHeader={({ section: { title } }) => (
+        <Text style={styles.header}>{title}</Text>
+      )}
     />
   );
 };
@@ -48,21 +105,16 @@ const UsersList = () => {
 export default UsersList;
 
 const styles = StyleSheet.create({
-  user: {
-    flexDirection: "row",
-    alignItems: "center",
-    columnGap: 16,
-    paddingHorizontal: 16,
-    height: 80,
-  },
-  userImg: {
-    height: 55,
-    width: 55,
-    borderRadius: 100,
-  },
   line: {
     width: "100%",
     height: 1,
     backgroundColor: "lightgray",
+  },
+  header: {
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+    textAlignVertical: "center",
+    alignItems: "center",
+    fontSize: 18,
   },
 });
