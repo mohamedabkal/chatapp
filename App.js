@@ -5,6 +5,7 @@ import UsersList from "./src/screens/UsersList";
 import { NavigationContainer } from "@react-navigation/native";
 import ChatRoom from "./src/screens/ChatRoom";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import Login from "./src/screens/Login";
 
 const Stack = createStackNavigator();
 
@@ -13,6 +14,7 @@ function Navigation() {
     <SafeAreaProvider>
       <NavigationContainer>
         <Stack.Navigator>
+          <Stack.Screen name="Login" component={Login} />
           <Stack.Screen name="Chats" component={UsersList} />
           <Stack.Screen
             name="ChatRoom"

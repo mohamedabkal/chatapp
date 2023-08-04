@@ -1,24 +1,33 @@
-import { SectionList, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, SectionList, StyleSheet, Text } from "react-native";
 import React, { useEffect, useState } from "react";
 import { firestore } from "../../firebase";
 import Chat from "../components/Chat";
-import { CURRENT_USER_ID } from "../../dummy_data";
+import useAuthUser from "../../useAuthUser";
 
-async function fetchAllUsers() {
-  const usersCollection = await firestore.collection("users").get();
-  const usersData = usersCollection.docs.map((doc) => {
-    return {
-      type: "user", // type of item "user" or "chat" (for ui)
-      id: doc.id,
-      ...doc.data(),
-    };
-  });
-  return usersData;
+function filterChats(chats, userID) {
+  // show only user's chats
+  const userChats = chats.filter((chat) =>
+    chat.users.some((usr) => usr.id === userID)
+  );
+  return userChats;
+}
+
+// remove users that are already in chats arr
+function filterUsersData(users, chats) {
+  const chatUsers = [];
+  chats.map((chat) => chat.users.map((usr) => chatUsers.push(usr.id)));
+  const newUsers = users.filter((user) => !chatUsers.includes(user.id));
+  return newUsers;
 }
 
 const UsersList = (props) => {
+  const [usersData, setUsersData] = useState([]); // placeholder for users data (do not update this state)
   const [chats, setChats] = useState([]);
   const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const { currentUser } = useAuthUser();
+  const CURRENT_USER_ID = currentUser?.uid;
 
   const data = [
     {
@@ -26,7 +35,7 @@ const UsersList = (props) => {
       data: chats,
     },
     {
-      title: "Users",
+      title: "All Users",
       data: users,
     },
   ];
@@ -43,39 +52,78 @@ const UsersList = (props) => {
             ...doc.data(),
           };
         });
-        setChats(chatsData);
-        console.log("Chat data: ", chatsData);
+        const filteredChats = filterChats(chatsData, CURRENT_USER_ID);
+        setChats(filteredChats);
+        console.log("Chat data: ", filteredChats);
       });
 
     // Stop listening for updates when no longer required
     return () => subscriber();
-  }, []);
+  }, [CURRENT_USER_ID]);
 
   useEffect(() => {
-    fetchAllUsers().then((usersData) => {
-      const removeUserFromList = usersData.filter(
-        (user) => user.id !== CURRENT_USER_ID
-      );
-      setUsers(removeUserFromList);
-    });
-  }, []);
+    if (CURRENT_USER_ID) {
+      fetchAllUsers();
+    }
+  }, [CURRENT_USER_ID]);
 
-  const openChat = (item) => {
-    props.navigation.navigate("ChatRoom", {
-      name: item.name,
-      chat_id: item.id,
-    });
+  useEffect(() => {
+    if (CURRENT_USER_ID) {
+      setUsers(filterUsersData(usersData, chats));
+    }
+  }, [chats, CURRENT_USER_ID, loading]);
+
+  async function fetchAllUsers() {
+    try {
+      setLoading(true);
+      const usersCollection = await firestore
+        .collection("users")
+        .where("id", "!=", CURRENT_USER_ID)
+        .get();
+      const usersData = usersCollection.docs.map((doc) => {
+        return {
+          type: "user", // type of item "user" or "chat" (for ui)
+          id: doc.data().id,
+          ...doc.data(),
+        };
+      });
+      setUsers(usersData);
+      setUsersData(usersData);
+    } catch (error) {
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const openChat = (item, chatName) => {
+    if (item.type === "chat") {
+      props.navigation.navigate("ChatRoom", {
+        name: chatName, // TODO: use the right property to display the name
+        chat_id: item.id,
+      });
+    } else {
+      props.navigation.navigate("ChatRoom", {
+        name: item.name,
+        other_user_id: item.id,
+        other_user_name: item.name,
+        other_user_img: item.profileImage,
+        other_user_email: item.email,
+        chat_id: null,
+      });
+    }
   };
 
   const renderUser = ({ item }) => {
     if (item.type === "chat") {
       // chatInfo returns other user data to use it for displaying name & chat img
-      const chatInfo = item.users.find((chat) => chat.id !== CURRENT_USER_ID);
+      const chatInfo = item.users.find(
+        (chatUsr) => chatUsr.id !== CURRENT_USER_ID
+      );
       const chatImg = chatInfo?.profileImage;
       const chatName = chatInfo?.name;
       return (
         <Chat
-          onPress={() => openChat(item)}
+          onPress={() => openChat(item, chatName)}
           profileImage={chatImg}
           name={chatName}
         />
@@ -89,6 +137,10 @@ const UsersList = (props) => {
       />
     );
   };
+
+  if (loading) {
+    return <ActivityIndicator size="large" style={{ flex: 1 }} />;
+  }
 
   return (
     <SectionList
